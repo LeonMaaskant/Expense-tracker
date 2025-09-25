@@ -2,3 +2,8 @@ expense_env/
 *.pyc
 __pycache__/
 *.csv
+*.env
+*kontoutskrift*.txt
+*account_statement*.txt
+*bank_statement*.txt
+*statement*.txt

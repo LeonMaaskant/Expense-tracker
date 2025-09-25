@@ -3,8 +3,11 @@ import pandas as pd
 import numpy as np
 from werkzeug.utils import secure_filename
 import os
-import re
-from collections import defaultdict
+from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
 app.config["MAX-CONTENT-LENGTH"] = 16 * 1024 * 1024
@@ -83,23 +86,23 @@ def handle_filesubmit():
     
     
     # Categorizing data
-    categories = categorize(df)
+    categories = categorize_with_ai(df[df["Ut fra konto"] > 0])
 
-    groceries_only = df.iloc[categories["dagligvare"]]
+    groceries_only = df.iloc[categories["mat_dagligvare"]]
     grocery_html = groceries_only[["Dato", "Forklaring", "Ut fra konto"]].to_html(
         index=False,
         classes="Table"
     )
-    wages_only = df.iloc[categories["lonn"]]
+    wages_only = df.iloc[categories["inntekt"]]
     wages_html = wages_only[["Dato", "Forklaring", "Inn på konto"]].to_html(
         index=False,
         classes="Table"
     )
-    investments_only = df.iloc[categories["investering"]]
-    investments_html = investments_only[["Dato", "Forklaring", "Ut fra konto"]].to_html(
-        index=False,
-        classes="Table"
-    )
+    #investments_only = df.iloc[categories["investering"]]
+    #investments_html = investments_only[["Dato", "Forklaring", "Ut fra konto"]].to_html(
+    #    index=False,
+    #    classes="Table"
+    #)
     transport_only = df.iloc[categories["transport"]]
     transport_html = transport_only[["Dato", "Forklaring", "Ut fra konto"]].to_html(
         index=False,
@@ -110,6 +113,8 @@ def handle_filesubmit():
         index=False,
         classes="Table"
     )
+
+    print(categorize_with_ai(df))
     
 
     return f"""
@@ -123,7 +128,6 @@ def handle_filesubmit():
         <p> Kun dagligvare: {grocery_html}</p>
         <p> Kun lønn: {wages_html}</p>
         <p> Kun transport: {transport_html}</p>
-        <p> Kun investering: {investments_html}</p>
         <p> Annet: {extra_html}</p>
         """
     
@@ -167,7 +171,47 @@ def categorize(data):
             categorized["annet"].append(index)
     return categorized
 
+def categorize_with_ai(df):
+    transactions = df["Forklaring"].tolist()
+
+    prompt = f"""Categorize these Norwegian bank transactions into ONE of these categories: Utgifter:
+                - mat_dagligvare
+                - bolig
+                - transport
+                - helse_velvære
+                - shopping_fritid
+                - abonnementer
+                - barn_familie
+                - gaver_sosialt
+                - finans
+                - annet
+                - inntekt
+
+                Transactions:
+                {chr(10).join([f"{i}: {t}" for i, t in enumerate(transactions)])}
+
+                Return ONLY a Python list of categories in the same order, like:
+                ["dagligvare", "bolig", "transport", ...]
+                """
     
+    response = client.chat.completions.create(
+        model="gpt-4o-mini", # Cheaper and faster for this task
+        messages=[
+            {"role": "system", "content": "You are a financial categorizer. Return only the requested format."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0 # makes responses more consistent
+    )
+
+    # Extract the response
+    categories_str = response.choices[0].message.content.strip()
+
+    # Convert string response to actual python list
+    import ast
+    categories = ast.literal_eval(categories_str)
+
+    return categories
+
 
 if __name__ == "__main__":
     app.run(debug=True)
